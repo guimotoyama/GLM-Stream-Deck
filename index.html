@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>GLM Stream Deck</title>
+<link rel="icon" href="imagens/Logo para Perfil.jpg">
+<link rel="apple-touch-icon" href="imagens/Logo para Perfil.jpg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d0f14">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== CABEÇALHO ===== -->
+  <header class="topbar">
+    <div class="status">
+      <span id="statusDot" class="dot offline"></span>
+      <span id="statusText">Desconectado</span>
+    </div>
+
+    <div class="brand">
+      <img id="logoImg" class="logo" src="imagens/Logo-Refeita-Branco 2.png" alt="" onerror="this.style.display='none'">
+      <h1>GLM Stream Deck</h1>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="editModeBtn" class="icon-btn" title="Editar">✏️</button>
+      <button id="settingsBtn" class="icon-btn" title="Conexão">⚙️</button>
+    </div>
+  </header>
+
+  <!-- ===== BARRA DE ABAS ===== -->
+  <div id="tabsBar" class="tabs-bar"></div>
+
+  <!-- ===== GRID DE BOTÕES ===== -->
+  <main>
+    <div id="grid" class="grid"></div>
+  </main>
+
+  <p id="editHint" class="edit-hint hidden">Modo edição ativo — toque numa aba ou botão para editar, ou num "+" para criar.</p>
+
+  <!-- ===== MODAL DE CONEXÃO ===== -->
+  <div id="connectionModal" class="modal-overlay modal-center hidden">
+    <div class="modal">
+      <h2>Conexão com o PC</h2>
+      <p class="modal-desc">Rode o <code>bridge.ps1</code> no seu PC e informe o IP local dele (ex: 192.168.0.10), a porta (padrão 8765) e a senha configurada no script.</p>
+
+      <label>IP do PC</label>
+      <input id="ipInput" type="text" placeholder="192.168.0.10" inputmode="decimal">
+
+      <label>Porta</label>
+      <input id="portInput" type="text" placeholder="8765" inputmode="numeric">
+
+      <label>Senha / Token</label>
+      <input id="tokenInput" type="text" placeholder="Mesma senha definida no bridge.ps1" autocomplete="off">
+
+      <div class="modal-buttons">
+        <button id="connectBtn" class="btn primary">Conectar</button>
+        <button id="disconnectBtn" class="btn danger">Desconectar</button>
+      </div>
+      <button id="closeConnModal" class="btn ghost">Fechar</button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL DE EDIÇÃO DE ABA ===== -->
+  <div id="tabModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="tabModalTitle">Nova aba</h2>
+
+      <label>Nome da aba</label>
+      <input id="tabNameInput" type="text" maxlength="18" placeholder="Ex: Jogos">
+
+      <div class="modal-buttons">
+        <button id="saveTabBtn" class="btn primary">Salvar</button>
+        <button id="deleteTabBtn" class="btn danger">Excluir</button>
+      </div>
+      <button id="closeTabModal" class="btn ghost">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL DE EDIÇÃO DE BOTÃO ===== -->
+  <div id="buttonModal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 id="buttonModalTitle">Editar botão</h2>
+
+      <label>Tipo de ícone</label>
+      <select id="btnIconType">
+        <option value="emoji">Emoji</option>
+        <option value="brand">Ícone de app (automático)</option>
+        <option value="image">Imagem personalizada</option>
+      </select>
+
+      <div id="iconEmojiField">
+        <label>Ícone (emoji)</label>
+        <input id="btnIcon" type="text" maxlength="4" placeholder="🎬">
+      </div>
+
+      <div id="iconBrandField" class="hidden">
+        <label>Nome do ícone (em inglês)</label>
+        <input id="btnBrandSlug" type="text" placeholder="whatsapp, visualstudiocode, discord...">
+        <div class="icon-preview-box">
+          <img id="brandPreviewImg" class="icon-preview hidden" alt="">
+          <span id="brandPreviewHint" class="text-dim-small">Digite o nome para ver o preview</span>
+        </div>
+        <p class="modal-hint">Veja os nomes disponíveis em simpleicons.org</p>
+      </div>
+
+      <div id="iconImageField" class="hidden">
+        <label>Escolha uma imagem</label>
+        <input id="btnImageFile" type="file" accept="image/*">
+        <img id="imagePreviewImg" class="icon-preview hidden" alt="">
+      </div>
+
+      <label>Nome</label>
+      <input id="btnLabel" type="text" maxlength="20" placeholder="Abrir OBS">
+
+      <label>Cor</label>
+      <input id="btnColor" type="color" value="#1f6feb">
+
+      <label>Tipo de ação</label>
+      <select id="btnActionType">
+        <option value="key">Atalho de teclado (ex: ctrl+c, win+d)</option>
+        <option value="media">Mídia (play, pause, volume, etc)</option>
+        <option value="open">Abrir site/app</option>
+        <option value="text">Digitar texto</option>
+        <option value="shell">Comando do sistema</option>
+      </select>
+
+      <label id="actionValueLabel">Valor da ação</label>
+      <input id="btnActionValue" type="text" placeholder="ex: ctrl+shift+s">
+      <select id="btnMediaSelect" class="hidden">
+        <option value="play/pause">Play / Pause</option>
+        <option value="volume up">Volume +</option>
+        <option value="volume down">Volume -</option>
+        <option value="volume mute">Mudo</option>
+        <option value="next track">Próxima faixa</option>
+        <option value="previous track">Faixa anterior</option>
+      </select>
+
+      <div class="modal-buttons">
+        <button id="saveBtnBtn" class="btn primary">Salvar</button>
+        <button id="deleteBtnBtn" class="btn danger">Excluir</button>
+      </div>
+      <button id="closeBtnModal" class="btn ghost">Cancelar</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

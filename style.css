@@ -1,0 +1,453 @@
+:root {
+  --bg: #0d0f14;
+  --panel: #161a22;
+  --panel-light: #1f2430;
+  --border: #2a2f3b;
+  --text: #f1f3f6;
+  --text-dim: #9aa3b2;
+  --accent: #1f6feb;
+  --danger: #e5484d;
+  --green: #2ecc71;
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  height: 100%;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ===== HEADER ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo {
+  height: 50px;
+  width: auto;
+  display: block;
+}
+
+.topbar h1 {
+  font-size: 18px;
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 18px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:active { transform: scale(0.92); }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 90px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.offline { background: var(--danger); }
+.dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot.connecting { background: #f5a623; }
+
+/* ===== ABAS ===== */
+.tabs-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  position: sticky;
+  top: 68px;
+  z-index: 9;
+}
+
+.tabs-bar::-webkit-scrollbar { display: none; }
+
+.tab-chip {
+  flex: none;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-light);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab-chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.tab-chip.add-tab {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  width: 40px;
+  text-align: center;
+}
+
+.tabs-bar.edit-mode .tab-chip:not(.add-tab)::after {
+  content: " ✏️";
+  font-size: 10px;
+}
+
+/* ===== GRID ===== */
+main {
+  padding: 18px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+@media (min-width: 420px) {
+  .grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.deck-btn {
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: transform 0.08s ease;
+  padding: 6px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.deck-btn .icon {
+  font-size: 50px;
+  line-height: 1;
+}
+
+.deck-btn .icon-img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.deck-btn:active {
+  transform: scale(0.93);
+  filter: brightness(1.15);
+}
+
+.deck-btn.empty {
+  background: var(--panel-light);
+  border: 2px dashed var(--border);
+  color: var(--text-dim);
+  box-shadow: none;
+  font-size: 28px;
+}
+
+.deck-btn.edit-mode::after {
+  content: "✏️";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.edit-hint {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 0 24px 16px;
+  margin: 0;
+}
+
+.hidden { display: none !important; }
+
+/* ===== MODAL ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 480px;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 20px calc(env(safe-area-inset-bottom, 0px) + 20px);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.modal-desc {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
+
+.modal label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 12px 0 6px;
+}
+
+.modal input[type="text"],
+.modal input[type="color"],
+.modal input[type="file"],
+.modal select,
+.modal input[inputmode] {
+  width: 100%;
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.modal input[type="color"] {
+  padding: 4px;
+  height: 46px;
+}
+
+.modal-overlay.modal-center {
+  align-items: center;
+  padding: 20px;
+}
+
+.modal-overlay.modal-center .modal {
+  border-radius: 20px;
+  max-height: 90vh;
+}
+
+.icon-preview-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.icon-preview {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+  background: var(--panel-light);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.text-dim-small {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.modal-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 6px 0 0;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.btn {
+  flex: 1;
+  padding: 13px;
+  border-radius: 12px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.ghost {
+  width: 100%;
+  background: transparent;
+  color: var(--text-dim);
+  margin-top: 10px;
+  border: 1px solid var(--border);
+}
+
+.btn:active { transform: scale(0.97); }
+
+/* ===== TOAST ===== */
+.toast {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #222733;
+  border: 1px solid var(--border);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  z-index: 100;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+
+/* ===== DRAG AND DROP ===== */
+.deck-btn.dragging,
+.tab-chip.dragging {
+  opacity: 0.85;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  z-index: 1000;
+  transition: none !important;
+}
+
+.deck-btn.drag-over {
+  outline: 2px dashed #fff;
+  outline-offset: -4px;
+}
+
+.tab-chip.drag-over {
+  outline: 2px dashed #fff;
+  outline-offset: -2px;
+}
+
+/* Evita que o navegador tente rolar a página
+   enquanto o usuário está arrastando um item no modo edição */
+.grid.edit-active .deck-btn:not(.empty),
+.tabs-bar.edit-mode .tab-chip:not(.add-tab) {
+  touch-action: none;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+
+  .topbar {
+    padding: calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px 14px;
+  }
+
+  .topbar h1 { font-size: 14px; }
+  .logo { height: 40px; }
+
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    border-radius: 9px;
+  }
+
+  .status {
+    font-size: 10px;
+    min-width: 70px;
+  }
+
+  .tabs-bar {
+    padding: 6px 14px;
+    top: 44px; /* acompanha a altura menor do topbar acima */
+  }
+
+  .tab-chip {
+    padding: 5px 12px;
+    font-size: 11px;
+  }
+
+  main {
+    padding: 8px 14px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .deck-btn {
+    aspect-ratio: auto;
+    height: calc((100vh - 115px) / 2);
+    min-height: 30px;
+    gap: 2px;
+    font-size: 12px;
+    padding: 4px;
+  }
+
+  .deck-btn .icon { font-size: 35px; }
+  .deck-btn .icon-img { width: 50px; height: 50px; }
+
+  .edit-hint {
+    font-size: 11px;
+    padding: 0 16px 6px;
+  }
+}
