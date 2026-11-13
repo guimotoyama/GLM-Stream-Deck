@@ -11,7 +11,7 @@ $BloqueioSeg = 60                    # tempo de bloqueio, em segundos
 
 # Endereço do seu site no GitHub Pages, SEM barra no final e SEM o nome do repositório.
 # Ex: se o app abre em https://joao.github.io/streamdeck/ , coloque https://joao.github.io
-$AllowedOrigin = "https://guimotoyama.github.io/GLM-Stream-Deck/"
+$AllowedOrigin = "https://guimotoyama.github.io"
 
 try {
     $ip = (Get-NetIPConfiguration |
