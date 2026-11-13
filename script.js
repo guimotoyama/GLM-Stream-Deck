@@ -1,3 +1,7 @@
+/* =========================================================
+   GLM Stream Deck - script.js
+   ========================================================= */
+
 const DEFAULT_TABS = [
   {
     id: "tab_sistema",
@@ -19,8 +23,7 @@ const DEFAULT_TABS = [
     name: "Gravação",
     buttons: [
       { iconType:"brand", icon:"obsstudio", label:"OBS Studio", color:"#302b45", actionType:"open", actionValue:"obs64" },
-      { iconType:"emoji", icon:"⏺️", label:"Iniciar Grav.", color:"#e5484d", actionType:"key", actionValue:"win+alt+r" },
-      { iconType:"emoji", icon:"⏹️", label:"Parar Grav.", color:"#374151", actionType:"key", actionValue:"win+alt+r" }
+      { iconType:"emoji", icon:"⏺️", label:"Gravar", color:"#e5484d", actionType:"key", actionValue:"win+alt+r" }
     ]
   },
   {
@@ -42,19 +45,43 @@ const DEFAULT_TABS = [
   }
 ];
 
-let state = {
-  tabs: [],
-  activeTabId: null,
-  ip: "",
-  port: "8765",
-  token: ""
+const STORAGE_KEY = "streamdeck_state";
+const PING_MS = 5000;
+const TIMEOUT_MS = 3000;
+
+/* Endereço do PC. No GitHub Pages (HTTPS) precisa ser um endereço HTTPS,
+   ex: https://meupc.tailxxxx.ts.net  (o navegador bloqueia http a partir de uma página https).
+   Se o app for aberto direto pelo bridge (http://IP:8765), usa a própria origem. */
+function baseUrl() {
+  if (state.host) return state.host;
+  return location.protocol === "http:" ? location.origin : "";
+}
+
+function normalizeHost(value) {
+  let h = value.trim().replace(/\/+$/, "");
+  if (h && !/^https?:\/\//i.test(h)) h = "https://" + h;
+  return h;
+}
+
+const HTTP_ERRORS = {
+  401: "Senha incorreta! Verifique em ⚙️",
+  403: "Ação bloqueada pelo bridge.",
+  429: "Muitas tentativas erradas. Aguarde 1 minuto.",
+  400: "Comando inválido.",
+  413: "Comando grande demais."
 };
+
+let state = { tabs: [], activeTabId: null, token: "", host: "" };
 
 let editMode = false;
 let editingIndex = null;
 let editingTabId = null;
 let uploadedImageData = null;
-let pingInterval = null;
+
+let pingEnabled = false;
+let pingTimer = null;
+let pingRun = 0;
+let askedToken = false;
 
 /* flag usada para não deixar um "clique" abrir o modal
    logo depois que o usuário acabou de arrastar um item */
@@ -63,35 +90,50 @@ let suppressClick = false;
 /* contexto do item sendo arrastado no momento (ou null) */
 let dragCtx = null;
 
+const $ = (id) => document.getElementById(id);
+
 /* ---------------- STORAGE ---------------- */
+function validTabs(tabs) {
+  return Array.isArray(tabs) && tabs.length > 0 && tabs.every(t =>
+    t && typeof t.id === "string" && typeof t.name === "string" &&
+    Array.isArray(t.buttons) &&
+    t.buttons.every(b => b && typeof b.label === "string" &&
+      typeof b.actionType === "string" && typeof b.actionValue === "string")
+  );
+}
+
 function loadState() {
-  const saved = localStorage.getItem("streamdeck_state");
-  if (saved) {
-    const parsed = JSON.parse(saved);
-    if (parsed.tabs) {
-      state = parsed;
-    } else {
-      state = {
-        tabs: [{
-          id: generateId(),
-          name: "Principal",
-          buttons: (parsed.buttons || []).filter(Boolean).map(b => ({ ...b, iconType: b.iconType || "emoji" }))
-        }],
-        activeTabId: null,
-        ip: parsed.ip || "",
-        port: parsed.port || "8765",
-        token: parsed.token || ""
-      };
-    }
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { saved = null; }
+
+  if (saved && validTabs(saved.tabs)) {
+    state.tabs = saved.tabs;
+    state.activeTabId = saved.activeTabId;
+    state.token = saved.token || "";
+  } else if (saved && Array.isArray(saved.buttons)) {
+    /* formato antigo (sem abas) */
+    state.tabs = [{
+      id: generateId(),
+      name: "Principal",
+      buttons: saved.buttons.filter(Boolean).map(b => ({ ...b, iconType: b.iconType || "emoji" }))
+    }];
+    state.token = saved.token || "";
   } else {
     state.tabs = JSON.parse(JSON.stringify(DEFAULT_TABS));
+    state.token = (saved && saved.token) || "";
   }
-  if (!state.activeTabId && state.tabs.length) state.activeTabId = state.tabs[0].id;
-  if (!state.token) state.token = "";
+
+  state.host = (saved && typeof saved.host === "string") ? saved.host : "";
+
+  if (!state.tabs.some(t => t.id === state.activeTabId)) state.activeTabId = state.tabs[0].id;
 }
 
 function saveState() {
-  localStorage.setItem("streamdeck_state", JSON.stringify(state));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    showToast("Não foi possível salvar (armazenamento cheio).");
+  }
 }
 
 function generateId() {
@@ -104,12 +146,13 @@ function getActiveTab() {
 
 /* ---------------- RENDER ABAS ---------------- */
 function renderTabsBar() {
-  const bar = document.getElementById("tabsBar");
+  const bar = $("tabsBar");
   bar.innerHTML = "";
   bar.classList.toggle("edit-mode", editMode);
 
   state.tabs.forEach((tab, index) => {
     const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = "tab-chip" + (tab.id === state.activeTabId ? " active" : "");
     chip.textContent = tab.name;
     chip.dataset.index = index;
@@ -131,6 +174,7 @@ function renderTabsBar() {
   });
 
   const addChip = document.createElement("button");
+  addChip.type = "button";
   addChip.className = "tab-chip add-tab";
   addChip.textContent = "+";
   addChip.addEventListener("click", () => openTabModal(null));
@@ -139,23 +183,27 @@ function renderTabsBar() {
 
 /* ---------------- RENDER GRID ---------------- */
 function renderGrid() {
-  const grid = document.getElementById("grid");
+  const grid = $("grid");
   grid.innerHTML = "";
   grid.classList.toggle("edit-active", editMode);
   const tab = getActiveTab();
   if (!tab) return;
 
   tab.buttons.forEach((btn, index) => {
-    const el = document.createElement("div");
-    el.className = "deck-btn";
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "deck-btn" + (editMode ? " edit-mode" : "");
     el.dataset.index = index;
     el.style.background = `linear-gradient(145deg, ${btn.color}, ${shade(btn.color, -18)})`;
-    el.innerHTML = `${renderIconHtml(btn)}<span>${btn.label || ""}</span>`;
-    if (editMode) el.classList.add("edit-mode");
+
+    const label = document.createElement("span");
+    label.textContent = btn.label || "";   /* textContent: não interpreta HTML */
+    el.append(buildIcon(btn), label);
 
     el.addEventListener("click", () => {
       if (suppressClick) { suppressClick = false; return; }
-      onButtonTap(index);
+      if (editMode) openButtonModal(index);
+      else onButtonTap(index, el);
     });
 
     attachDragHandlers(el, "button", index);
@@ -163,7 +211,8 @@ function renderGrid() {
   });
 
   if (editMode) {
-    const addEl = document.createElement("div");
+    const addEl = document.createElement("button");
+    addEl.type = "button";
     addEl.className = "deck-btn empty";
     addEl.textContent = "+";
     addEl.addEventListener("click", () => openButtonModal(null));
@@ -171,42 +220,54 @@ function renderGrid() {
   }
 }
 
-function renderIconHtml(btn) {
-  if (btn.iconType === "brand" && btn.icon) {
-    return `<img class="icon-img" src="https://cdn.simpleicons.org/${btn.icon}/ffffff" alt="">`;
-  }
-  if (btn.iconType === "image" && btn.icon) {
-    return `<img class="icon-img" src="${btn.icon}" alt="">`;
-  }
-  return `<span class="icon">${btn.icon || "🔘"}</span>`;
+function emojiIcon(text) {
+  const s = document.createElement("span");
+  s.className = "icon";
+  s.textContent = text;
+  return s;
+}
+
+function buildIcon(btn) {
+  const isImg = (btn.iconType === "brand" || btn.iconType === "image") && btn.icon;
+  if (!isImg) return emojiIcon(btn.icon || "🔘");
+
+  const img = document.createElement("img");
+  img.className = "icon-img";
+  img.alt = "";
+  img.draggable = false;
+  img.src = btn.iconType === "brand"
+    ? `https://cdn.simpleicons.org/${encodeURIComponent(btn.icon)}/ffffff`
+    : btn.icon;
+  /* sem internet (ou nome inválido): mostra um emoji no lugar */
+  img.onerror = () => img.replaceWith(emojiIcon("🔘"));
+  return img;
 }
 
 function shade(hex, percent) {
-  try {
-    const num = parseInt(hex.replace("#", ""), 16);
-    let r = (num >> 16) + percent;
-    let g = ((num >> 8) & 0x00ff) + percent;
-    let b = (num & 0x0000ff) + percent;
-    r = Math.min(255, Math.max(0, r));
-    g = Math.min(255, Math.max(0, g));
-    b = Math.min(255, Math.max(0, b));
-    return `rgb(${r},${g},${b})`;
-  } catch {
-    return hex;
-  }
+  const num = parseInt(String(hex).replace("#", ""), 16);
+  if (isNaN(num)) return hex;
+  const clamp = (v) => Math.min(255, Math.max(0, v));
+  const r = clamp((num >> 16) + percent);
+  const g = clamp(((num >> 8) & 0xff) + percent);
+  const b = clamp((num & 0xff) + percent);
+  return `rgb(${r},${g},${b})`;
 }
 
 /* ---------------- TOQUE NO BOTÃO ---------------- */
-function onButtonTap(index) {
-  if (editMode) {
-    openButtonModal(index);
-    return;
-  }
+async function onButtonTap(index, el) {
   const tab = getActiveTab();
-  const btn = tab.buttons[index];
+  const btn = tab && tab.buttons[index];
   if (!btn) return;
   vibrate();
-  sendCommand(btn.actionType, btn.actionValue);
+  const ok = await sendCommand(btn.actionType, btn.actionValue);
+  flash(el, ok);
+}
+
+function flash(el, ok) {
+  if (!el.isConnected) return;
+  const cls = ok ? "flash-ok" : "flash-fail";
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), 450);
 }
 
 function vibrate(ms = 25) {
@@ -214,10 +275,10 @@ function vibrate(ms = 25) {
 }
 
 /* ---------------- MODO EDIÇÃO ---------------- */
-document.getElementById("editModeBtn").addEventListener("click", () => {
+$("editModeBtn").addEventListener("click", () => {
   editMode = !editMode;
-  document.getElementById("editModeBtn").style.background = editMode ? "#1f6feb" : "";
-  document.getElementById("editHint").classList.toggle("hidden", !editMode);
+  $("editModeBtn").classList.toggle("active", editMode);
+  $("editHint").classList.toggle("hidden", !editMode);
   renderTabsBar();
   renderGrid();
 });
@@ -227,6 +288,9 @@ document.getElementById("editModeBtn").addEventListener("click", () => {
    ========================================================= */
 
 function attachDragHandlers(el, type, index) {
+  /* no iOS, segurar pressionado abre o menu de contexto */
+  el.addEventListener("contextmenu", (e) => { if (editMode) e.preventDefault(); });
+
   el.addEventListener("pointerdown", (e) => {
     if (!editMode) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -297,14 +361,18 @@ function onDragMove(e) {
   const selector = dragCtx.type === "tab" ? ".tab-chip:not(.add-tab)" : ".deck-btn:not(.empty)";
   const hoverEl = target ? target.closest(selector) : null;
 
+  /* se o dedo não está sobre outro item, o destino volta a ser a posição original */
+  let newIndex = dragCtx.fromIndex;
   if (hoverEl && hoverEl !== dragCtx.el) {
-    const hoverIndex = parseInt(hoverEl.dataset.index, 10);
-    if (!isNaN(hoverIndex) && hoverIndex !== dragCtx.hoverIndex) {
-      if (dragCtx.hoverElRef) dragCtx.hoverElRef.classList.remove("drag-over");
-      hoverEl.classList.add("drag-over");
-      dragCtx.hoverElRef = hoverEl;
-      dragCtx.hoverIndex = hoverIndex;
-    }
+    const i = parseInt(hoverEl.dataset.index, 10);
+    if (!isNaN(i)) newIndex = i;
+  }
+
+  if (newIndex !== dragCtx.hoverIndex) {
+    if (dragCtx.hoverElRef) dragCtx.hoverElRef.classList.remove("drag-over");
+    dragCtx.hoverElRef = newIndex !== dragCtx.fromIndex ? hoverEl : null;
+    if (dragCtx.hoverElRef) dragCtx.hoverElRef.classList.add("drag-over");
+    dragCtx.hoverIndex = newIndex;
   }
 }
 
@@ -344,23 +412,23 @@ function onDragEnd(e) {
 }
 
 /* ---------------- MODAL DE ABA ---------------- */
-const tabModal = document.getElementById("tabModal");
-const tabNameInput = document.getElementById("tabNameInput");
+const tabModal = $("tabModal");
+const tabNameInput = $("tabNameInput");
 
 function openTabModal(tabId) {
   editingTabId = tabId;
   const tab = tabId ? state.tabs.find(t => t.id === tabId) : null;
-  document.getElementById("tabModalTitle").textContent = tab ? "Editar aba" : "Nova aba";
+  $("tabModalTitle").textContent = tab ? "Editar aba" : "Nova aba";
   tabNameInput.value = tab ? tab.name : "";
-  document.getElementById("deleteTabBtn").style.display = tab ? "block" : "none";
+  $("deleteTabBtn").style.display = tab ? "block" : "none";
   tabModal.classList.remove("hidden");
 }
 
-document.getElementById("closeTabModal").addEventListener("click", () => {
+$("closeTabModal").addEventListener("click", () => {
   tabModal.classList.add("hidden");
 });
 
-document.getElementById("saveTabBtn").addEventListener("click", () => {
+$("saveTabBtn").addEventListener("click", () => {
   const name = tabNameInput.value.trim();
   if (!name) { showToast("Digite um nome para a aba."); return; }
 
@@ -378,7 +446,7 @@ document.getElementById("saveTabBtn").addEventListener("click", () => {
   tabModal.classList.add("hidden");
 });
 
-document.getElementById("deleteTabBtn").addEventListener("click", () => {
+$("deleteTabBtn").addEventListener("click", () => {
   if (state.tabs.length <= 1) { showToast("Precisa ter ao menos uma aba."); return; }
   state.tabs = state.tabs.filter(t => t.id !== editingTabId);
   if (state.activeTabId === editingTabId) state.activeTabId = state.tabs[0].id;
@@ -389,29 +457,33 @@ document.getElementById("deleteTabBtn").addEventListener("click", () => {
 });
 
 /* ---------------- MODAL DE BOTÃO ---------------- */
-const buttonModal = document.getElementById("buttonModal");
-const btnIconType = document.getElementById("btnIconType");
-const btnIcon = document.getElementById("btnIcon");
-const btnBrandSlug = document.getElementById("btnBrandSlug");
-const btnLabel = document.getElementById("btnLabel");
-const btnColor = document.getElementById("btnColor");
-const btnActionType = document.getElementById("btnActionType");
-const btnActionValue = document.getElementById("btnActionValue");
-const btnMediaSelect = document.getElementById("btnMediaSelect");
-const actionValueLabel = document.getElementById("actionValueLabel");
+const buttonModal = $("buttonModal");
+const btnIconType = $("btnIconType");
+const btnIcon = $("btnIcon");
+const btnBrandSlug = $("btnBrandSlug");
+const btnLabel = $("btnLabel");
+const btnColor = $("btnColor");
+const btnActionType = $("btnActionType");
+const btnActionValue = $("btnActionValue");
+const btnMediaSelect = $("btnMediaSelect");
+const actionValueLabel = $("actionValueLabel");
 
 function toggleIconFields() {
   const type = btnIconType.value;
-  document.getElementById("iconEmojiField").classList.toggle("hidden", type !== "emoji");
-  document.getElementById("iconBrandField").classList.toggle("hidden", type !== "brand");
-  document.getElementById("iconImageField").classList.toggle("hidden", type !== "image");
+  $("iconEmojiField").classList.toggle("hidden", type !== "emoji");
+  $("iconBrandField").classList.toggle("hidden", type !== "brand");
+  $("iconImageField").classList.toggle("hidden", type !== "image");
 }
 btnIconType.addEventListener("change", toggleIconFields);
 
+function cleanSlug(value) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
 function updateBrandPreview() {
-  const slug = btnBrandSlug.value.trim().toLowerCase().replace(/\s+/g, "");
-  const img = document.getElementById("brandPreviewImg");
-  const hint = document.getElementById("brandPreviewHint");
+  const slug = cleanSlug(btnBrandSlug.value);
+  const img = $("brandPreviewImg");
+  const hint = $("brandPreviewHint");
   if (!slug) {
     img.classList.add("hidden");
     hint.textContent = "Digite o nome para ver o preview";
@@ -420,37 +492,58 @@ function updateBrandPreview() {
   }
   img.onerror = () => {
     img.classList.add("hidden");
-    hint.textContent = "Ícone não encontrado, verifique o nome";
+    hint.textContent = "Ícone não encontrado (ou sem internet)";
     hint.classList.remove("hidden");
   };
   img.onload = () => {
     img.classList.remove("hidden");
     hint.classList.add("hidden");
   };
-  img.src = `https://cdn.simpleicons.org/${slug}/ffffff`;
+  img.src = `https://cdn.simpleicons.org/${encodeURIComponent(slug)}/ffffff`;
 }
 btnBrandSlug.addEventListener("input", updateBrandPreview);
 
 function updateImagePreview() {
-  const img = document.getElementById("imagePreviewImg");
+  const img = $("imagePreviewImg");
   if (uploadedImageData) {
     img.src = uploadedImageData;
     img.classList.remove("hidden");
   } else {
-    img.src = "";
+    img.removeAttribute("src");
     img.classList.add("hidden");
   }
 }
 
-document.getElementById("btnImageFile").addEventListener("change", (e) => {
+/* reduz a imagem para no máximo 128px antes de salvar (o localStorage é pequeno) */
+function resizeImage(file, size = 128) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const w0 = img.naturalWidth || size;
+      const h0 = img.naturalHeight || size;
+      const scale = Math.min(size / w0, size / h0, 1);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w0 * scale));
+      canvas.height = Math.max(1, Math.round(h0 * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("imagem inválida")); };
+    img.src = url;
+  });
+}
+
+$("btnImageFile").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    uploadedImageData = reader.result;
+  try {
+    uploadedImageData = await resizeImage(file);
     updateImagePreview();
-  };
-  reader.readAsDataURL(file);
+  } catch {
+    showToast("Não foi possível ler essa imagem.");
+  }
 });
 
 function openButtonModal(index) {
@@ -458,7 +551,7 @@ function openButtonModal(index) {
   const tab = getActiveTab();
   const btn = (index !== null) ? tab.buttons[index] : null;
 
-  document.getElementById("buttonModalTitle").textContent = btn ? "Editar botão" : "Novo botão";
+  $("buttonModalTitle").textContent = btn ? "Editar botão" : "Novo botão";
 
   const iconType = btn ? (btn.iconType || "emoji") : "emoji";
   btnIconType.value = iconType;
@@ -467,6 +560,7 @@ function openButtonModal(index) {
   btnIcon.value = (btn && iconType === "emoji") ? btn.icon : "";
   btnBrandSlug.value = (btn && iconType === "brand") ? btn.icon : "";
   uploadedImageData = (btn && iconType === "image") ? btn.icon : null;
+  $("btnImageFile").value = "";
   updateBrandPreview();
   updateImagePreview();
 
@@ -476,7 +570,7 @@ function openButtonModal(index) {
   btnActionValue.value = btn && btn.actionType !== "media" ? btn.actionValue : "";
   btnMediaSelect.value = btn && btn.actionType === "media" ? btn.actionValue : "play/pause";
 
-  document.getElementById("deleteBtnBtn").style.display = btn ? "block" : "none";
+  $("deleteBtnBtn").style.display = btn ? "block" : "none";
 
   toggleActionValueField();
   buttonModal.classList.remove("hidden");
@@ -488,28 +582,28 @@ function toggleActionValueField() {
   btnActionValue.classList.toggle("hidden", isMedia);
 
   const labels = {
-    key: "Atalho (ex: ctrl+c, win+d, alt+tab)",
+    key: "Atalho (ex: ctrl+c, win+d, alt+tab, f13)",
     media: "Selecione a ação de mídia",
     open: "URL (https://...) ou nome do app",
     text: "Texto que será digitado",
-    shell: "Comando do sistema (use com cuidado)"
+    shell: "Comando do sistema (precisa estar liberado no bridge)"
   };
   actionValueLabel.textContent = labels[btnActionType.value];
 }
 btnActionType.addEventListener("change", toggleActionValueField);
 
-document.getElementById("closeBtnModal").addEventListener("click", () => {
+$("closeBtnModal").addEventListener("click", () => {
   buttonModal.classList.add("hidden");
 });
 
-document.getElementById("saveBtnBtn").addEventListener("click", () => {
+$("saveBtnBtn").addEventListener("click", () => {
   const actionType = btnActionType.value;
   const actionValue = actionType === "media" ? btnMediaSelect.value : btnActionValue.value.trim();
   const iconType = btnIconType.value;
 
   let iconValue = "";
   if (iconType === "emoji") iconValue = btnIcon.value.trim() || "🔘";
-  if (iconType === "brand") iconValue = btnBrandSlug.value.trim().toLowerCase().replace(/\s+/g, "");
+  if (iconType === "brand") iconValue = cleanSlug(btnBrandSlug.value);
   if (iconType === "image") iconValue = uploadedImageData || "";
 
   if (!btnLabel.value.trim() || !actionValue) {
@@ -540,7 +634,7 @@ document.getElementById("saveBtnBtn").addEventListener("click", () => {
   buttonModal.classList.add("hidden");
 });
 
-document.getElementById("deleteBtnBtn").addEventListener("click", () => {
+$("deleteBtnBtn").addEventListener("click", () => {
   if (editingIndex === null) return;
   const tab = getActiveTab();
   tab.buttons.splice(editingIndex, 1);
@@ -550,109 +644,193 @@ document.getElementById("deleteBtnBtn").addEventListener("click", () => {
 });
 
 /* ---------------- CONEXÃO ---------------- */
-const connectionModal = document.getElementById("connectionModal");
-const ipInput = document.getElementById("ipInput");
-const portInput = document.getElementById("portInput");
-const tokenInput = document.getElementById("tokenInput");
+const connectionModal = $("connectionModal");
+const tokenInput = $("tokenInput");
+const hostInput = $("hostInput");
 
-document.getElementById("settingsBtn").addEventListener("click", () => {
-  ipInput.value = state.ip;
-  portInput.value = state.port;
+function openConnectionModal() {
+  hostInput.value = state.host || "";
   tokenInput.value = state.token || "";
   connectionModal.classList.remove("hidden");
-});
-
-document.getElementById("closeConnModal").addEventListener("click", () => {
-  connectionModal.classList.add("hidden");
-});
-
-document.getElementById("connectBtn").addEventListener("click", () => {
-  state.ip = ipInput.value.trim();
-  state.port = portInput.value.trim() || "8765";
-  state.token = tokenInput.value.trim();
-  saveState();
-  connectWS();
-  connectionModal.classList.add("hidden");
-});
-
-document.getElementById("disconnectBtn").addEventListener("click", () => {
-  stopPing();
-  setStatus("offline", "Desconectado");
-});
-
-function setStatus(statusClass, text) {
-  document.getElementById("statusDot").className = "dot " + statusClass;
-  document.getElementById("statusText").textContent = text;
 }
 
-function baseUrl() {
-  return `http://${state.ip}:${state.port}`;
+$("settingsBtn").addEventListener("click", openConnectionModal);
+
+$("closeConnModal").addEventListener("click", () => {
+  connectionModal.classList.add("hidden");
+});
+
+$("connectBtn").addEventListener("click", () => {
+  const host = normalizeHost(hostInput.value);
+  if (location.protocol === "https:" && host.startsWith("http://")) {
+    showToast("No GitHub Pages o endereço do PC precisa começar com https://");
+    return;
+  }
+  state.host = host;
+  state.token = tokenInput.value.trim();
+  saveState();
+  askedToken = false;
+  startPing();
+  connectionModal.classList.add("hidden");
+});
+
+$("disconnectBtn").addEventListener("click", () => {
+  stopPing();
+  setStatus("offline", "Desconectado");
+  connectionModal.classList.add("hidden");
+});
+
+/* ---------------- BACKUP DOS BOTÕES ---------------- */
+$("exportBtn").addEventListener("click", () => {
+  const data = JSON.stringify({ tabs: state.tabs }, null, 2);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+  a.download = "glm-stream-deck.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+$("importBtn").addEventListener("click", () => $("importFile").click());
+
+$("importFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    if (!validTabs(parsed.tabs)) throw new Error("formato inválido");
+    state.tabs = parsed.tabs;
+    state.activeTabId = state.tabs[0].id;
+    saveState();
+    renderTabsBar();
+    renderGrid();
+    connectionModal.classList.add("hidden");
+    showToast("Botões importados!");
+  } catch {
+    showToast("Arquivo inválido. Use um backup exportado pelo app.");
+  }
+});
+
+/* ---------------- STATUS / REDE ---------------- */
+function setStatus(statusClass, text) {
+  $("statusDot").className = "dot " + statusClass;
+  $("statusText").textContent = text;
 }
 
 function authHeaders() {
   return state.token ? { "X-Auth-Token": state.token } : {};
 }
 
-function connectWS() {
-  if (!state.ip) {
-    showToast("Informe o IP do PC em ⚙️");
-    return;
+async function fetchTimeout(url, options = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal, cache: "no-store" });
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/* Retorna true se vale a pena continuar verificando. Em caso de senha errada
+   ou bloqueio, para de insistir (insistir só aumentaria as tentativas erradas). */
+async function checkConnection() {
+  const base = baseUrl();
+  if (!base) {
+    setStatus("offline", "Defina o endereço em ⚙️");
+    if (!askedToken) {
+      askedToken = true;
+      openConnectionModal();
+    }
+    return false;
+  }
+  try {
+    const res = await fetchTimeout(`${base}/ping`, { headers: authHeaders() });
+    if (res.ok) {
+      setStatus("online", "Conectado");
+      return true;
+    }
+    if (res.status === 401) {
+      setStatus("offline", "Senha incorreta");
+      if (!state.token && !askedToken) {
+        askedToken = true;
+        openConnectionModal();
+      }
+      return false;
+    }
+    if (res.status === 429) {
+      setStatus("offline", "Bloqueado por 1 min");
+      return false;
+    }
+    setStatus("offline", "Desconectado");
+    return true;
+  } catch {
+    setStatus("offline", "Desconectado");
+    return true;
+  }
+}
+
+async function pingLoop() {
+  const id = ++pingRun;
+  const keepGoing = await checkConnection();
+  if (id !== pingRun) return;   /* uma rodada mais nova assumiu */
+  if (keepGoing && pingEnabled && !document.hidden) {
+    pingTimer = setTimeout(pingLoop, PING_MS);
+  }
+}
+
+function startPing() {
+  pingEnabled = true;
+  clearTimeout(pingTimer);
   setStatus("connecting", "Conectando...");
-  checkConnection();
-  stopPing();
-  pingInterval = setInterval(checkConnection, 5000);
+  pingLoop();
 }
 
 function stopPing() {
-  if (pingInterval) clearInterval(pingInterval);
-  pingInterval = null;
+  pingEnabled = false;
+  pingRun++;
+  clearTimeout(pingTimer);
 }
 
-async function checkConnection() {
-  try {
-    const res = await fetch(`${baseUrl()}/ping`, {
-      method: "GET",
-      headers: { ...authHeaders() }
-    });
-    if (res.ok) {
-      setStatus("online", "Conectado");
-    } else if (res.status === 401) {
-      setStatus("offline", "Senha incorreta");
-    } else {
-      setStatus("offline", "Desconectado");
-    }
-  } catch {
-    setStatus("offline", "Desconectado");
-  }
-}
+/* economiza bateria: não verifica com o app em segundo plano */
+document.addEventListener("visibilitychange", () => {
+  clearTimeout(pingTimer);
+  if (!document.hidden && pingEnabled) pingLoop();
+});
 
 async function sendCommand(type, value) {
-  if (!state.ip) {
-    showToast("Não conectado ao PC (toque em ⚙️)");
-    return;
+  const base = baseUrl();
+  if (!base) {
+    showToast("Defina o endereço do PC em ⚙️");
+    return false;
+  }
+  if (!pingEnabled) {
+    showToast("Desconectado. Toque em ⚙️ para conectar.");
+    return false;
   }
   try {
-    const res = await fetch(`${baseUrl()}/command`, {
+    const res = await fetchTimeout(`${base}/command`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ type, value })
     });
-    if (res.status === 401) {
-      showToast("Senha incorreta! Verifique em ⚙️");
-      return;
-    }
-    if (!res.ok) showToast("Erro ao executar comando no PC");
+    if (res.ok) return true;
+
+    if (res.status === 401) setStatus("offline", "Senha incorreta");
+    showToast(HTTP_ERRORS[res.status] || "Erro ao executar comando no PC");
+    return false;
   } catch {
-    showToast("PC não encontrado. Verifique o bridge.ps1 e o IP.");
+    showToast("PC não encontrado. Verifique o Tailscale (celular e PC) e o bridge.");
     setStatus("offline", "Desconectado");
+    return false;
   }
 }
 
 /* ---------------- TOAST ---------------- */
 let toastTimer = null;
 function showToast(msg) {
-  const toast = document.getElementById("toast");
+  const toast = $("toast");
   toast.textContent = msg;
   toast.classList.remove("hidden");
   clearTimeout(toastTimer);
@@ -663,4 +841,4 @@ function showToast(msg) {
 loadState();
 renderTabsBar();
 renderGrid();
-if (state.ip) connectWS();
+startPing();

@@ -20,23 +20,38 @@ html, body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   height: 100%;
-  overflow-x: hidden;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Tela em coluna: cabeçalho e abas fixos, só o <main> rola.
+   Assim não precisa de position: sticky nem de alturas fixas. */
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Campos de texto precisam permitir seleção/digitação no iOS */
+input, select {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+button { font-family: inherit; }
+
 /* ===== HEADER ===== */
 .topbar {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 
 .brand {
@@ -75,8 +90,10 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: manipulation;
 }
 
+.icon-btn.active { background: var(--accent); }
 .icon-btn:active { transform: scale(0.92); }
 
 .status {
@@ -93,6 +110,7 @@ html, body {
   height: 9px;
   border-radius: 50%;
   display: inline-block;
+  flex: none;
 }
 
 .dot.offline { background: var(--danger); }
@@ -101,6 +119,7 @@ html, body {
 
 /* ===== ABAS ===== */
 .tabs-bar {
+  flex: none;
   display: flex;
   gap: 8px;
   padding: 10px 16px;
@@ -109,9 +128,6 @@ html, body {
   border-bottom: 1px solid var(--border);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  position: sticky;
-  top: 68px;
-  z-index: 9;
 }
 
 .tabs-bar::-webkit-scrollbar { display: none; }
@@ -127,6 +143,7 @@ html, body {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  touch-action: manipulation;
 }
 
 .tab-chip.active {
@@ -148,25 +165,35 @@ html, body {
   font-size: 10px;
 }
 
-/* ===== GRID ===== */
+/* ===== GRID (flexbox) ===== */
 main {
-  padding: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 18px calc(env(safe-area-inset-bottom, 0px) + 18px);
 }
 
 .grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 14px;
 }
 
+/* 3 colunas: (100% - 2 espaços de 14px) / 3 */
+.deck-btn { flex: 0 0 calc((100% - 28px) / 3); }
+
+/* 4 colunas: (100% - 3 espaços de 14px) / 4 */
 @media (min-width: 420px) {
-  .grid { grid-template-columns: repeat(4, 1fr); }
+  .deck-btn { flex-basis: calc((100% - 42px) / 4); }
 }
 
 .deck-btn {
   aspect-ratio: 1 / 1;
   border-radius: var(--radius);
   border: 1px solid rgba(255,255,255,0.08);
+  background: var(--panel-light);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -177,11 +204,20 @@ main {
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 4px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08);
-  transition: transform 0.08s ease;
+  transition: transform 0.08s ease, box-shadow 0.2s ease;
   padding: 6px;
+  margin: 0;
   text-align: center;
   position: relative;
   overflow: hidden;
+  touch-action: manipulation;
+}
+
+.deck-btn > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .deck-btn .icon {
@@ -193,12 +229,17 @@ main {
   width: 34px;
   height: 34px;
   object-fit: contain;
+  pointer-events: none;
 }
 
 .deck-btn:active {
   transform: scale(0.93);
   filter: brightness(1.15);
 }
+
+/* Feedback do resultado do comando */
+.deck-btn.flash-ok   { box-shadow: 0 0 0 3px rgba(46,204,113,0.9), 0 4px 10px rgba(0,0,0,0.35); }
+.deck-btn.flash-fail { box-shadow: 0 0 0 3px rgba(229,72,77,0.95), 0 4px 10px rgba(0,0,0,0.35); }
 
 .deck-btn.empty {
   background: var(--panel-light);
@@ -218,11 +259,14 @@ main {
 }
 
 .edit-hint {
+  flex: none;
   text-align: center;
   color: var(--text-dim);
   font-size: 13px;
-  padding: 0 24px 16px;
+  padding: 8px 24px calc(env(safe-area-inset-bottom, 0px) + 10px);
   margin: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
 }
 
 .hidden { display: none !important; }
@@ -246,6 +290,7 @@ main {
   border-radius: 20px 20px 0 0;
   padding: 20px 20px calc(env(safe-area-inset-bottom, 0px) + 20px);
   max-height: 85vh;
+  max-height: 85dvh;
   overflow-y: auto;
 }
 
@@ -269,17 +314,17 @@ main {
 }
 
 .modal input[type="text"],
+.modal input[type="password"],
 .modal input[type="color"],
 .modal input[type="file"],
-.modal select,
-.modal input[inputmode] {
+.modal select {
   width: 100%;
   background: var(--panel-light);
   border: 1px solid var(--border);
   color: var(--text);
   padding: 12px;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px; /* 16px evita o zoom automático do iOS ao focar */
 }
 
 .modal input[type="color"] {
@@ -295,6 +340,7 @@ main {
 .modal-overlay.modal-center .modal {
   border-radius: 20px;
   max-height: 90vh;
+  max-height: 90dvh;
 }
 
 .icon-preview-box {
@@ -338,10 +384,17 @@ main {
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.danger { background: var(--danger); color: #fff; }
+.btn.secondary {
+  background: var(--panel-light);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
 .btn.ghost {
   width: 100%;
   background: transparent;
@@ -365,6 +418,8 @@ main {
   border-radius: 10px;
   font-size: 13px;
   z-index: 100;
+  max-width: calc(100% - 32px);
+  text-align: center;
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
 }
 
@@ -394,7 +449,13 @@ main {
   touch-action: none;
 }
 
+/* ===== PAISAGEM (celular deitado) ===== */
 @media (orientation: landscape) and (max-height: 500px) {
+
+  :root {
+    /* altura aproximada de cabeçalho + abas; ajuste aqui se mudar o layout */
+    --chrome-h: 115px;
+  }
 
   .topbar {
     padding: calc(env(safe-area-inset-top, 0px) + 6px) 14px 6px 14px;
@@ -415,28 +476,22 @@ main {
     min-width: 70px;
   }
 
-  .tabs-bar {
-    padding: 6px 14px;
-    top: 44px; /* acompanha a altura menor do topbar acima */
-  }
+  .tabs-bar { padding: 6px 14px; }
 
   .tab-chip {
     padding: 5px 12px;
     font-size: 11px;
   }
 
-  main {
-    padding: 8px 14px;
-  }
+  main { padding: 8px 14px; }
 
-  .grid {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-  }
+  .grid { gap: 8px; }
 
+  /* 4 colunas: (100% - 3 espaços de 8px) / 4, duas linhas cabem na tela */
   .deck-btn {
+    flex-basis: calc((100% - 24px) / 4);
     aspect-ratio: auto;
-    height: calc((100vh - 115px) / 2);
+    height: calc((100dvh - var(--chrome-h)) / 2);
     min-height: 30px;
     gap: 2px;
     font-size: 12px;
@@ -448,6 +503,6 @@ main {
 
   .edit-hint {
     font-size: 11px;
-    padding: 0 16px 6px;
+    padding: 4px 16px calc(env(safe-area-inset-bottom, 0px) + 6px);
   }
 }
